@@ -1,191 +1,183 @@
 const express = require('express');
 const http = require('http');
-const cors = require('cors');
 const { Server } = require('socket.io');
+const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-
-// Настройки
-const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'wintozo-secret-key-2024';
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: '*' })); // Разрешаем запросы с Vercel
 app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-// База данных в памяти (для быстрой работы на Render/Railway)
-const db = {
-  users: [],
-  chats: [],
-  messages: []
-};
+const JWT_SECRET = process.env.JWT_SECRET || 'wintozo-secret-key-2024';
 
-// Функция для генерации аватара
-const generateAvatar = (name) => {
-  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FDCB6E', '#6C5CE7', '#A8E6CF'];
-  const color = colors[Math.floor(Math.random() * colors.length)];
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=${color.replace('#', '')}&color=fff&size=150`;
-};
+// Простая база данных (в оперативной памяти)
+const users = [];
+const chats = [];
+const messages = [];
 
-// Middleware для проверки токена
+// Проверка токена
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Нет токена' });
-
+  
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Неверный токен' });
+    if (err) return res.status(403).json({ error: 'Токен недействителен' });
     req.user = user;
     next();
   });
 };
 
-// --- HTTP API ---
+// --- REST API ---
 
-// 1. Проверка здоровья (чтобы сервер не засыпал)
+// 1. Здоровье сервера
 app.get('/api/v1/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString(), version: '1.0.0' });
+  res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
 // 2. Регистрация
-app.post('/api/v1/auth/register', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    if (db.users.find(u => u.username === username)) {
-      return res.status(400).json({ error: 'Пользователь уже существует' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = {
-      id: Date.now().toString(),
-      username,
-      password: hashedPassword,
-      avatar: generateAvatar(username),
-      isOnline: true,
-      lastSeen: new Date().toISOString()
-    };
-
-    db.users.push(newUser);
-
-    const token = jwt.sign({ id: newUser.id, username: newUser.username }, JWT_SECRET, { expiresIn: '7d' });
-    
-    const userResponse = { ...newUser };
-    delete userResponse.password;
-
-    res.status(201).json({ user: userResponse, token });
-  } catch (err) {
-    res.status(500).json({ error: 'Ошибка сервера' });
+app.post('/api/v1/auth/register', (req, res) => {
+  const { username, password, name } = req.body;
+  if (users.find(u => u.username === username)) {
+    return res.status(400).json({ error: 'Пользователь уже существует' });
   }
+  
+  const newUser = {
+    id: Date.now().toString(),
+    username,
+    name: name || username,
+    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
+    status: 'online',
+    lastSeen: new Date().toISOString()
+  };
+  
+  users.push({ ...newUser, password }); // сохраняем с паролем
+  
+  const token = jwt.sign({ id: newUser.id, username }, JWT_SECRET);
+  res.json({ user: newUser, token });
 });
 
 // 3. Логин
-app.post('/api/v1/auth/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const user = db.users.find(u => u.username === username);
-
-    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) return res.status(401).json({ error: 'Неверный пароль' });
-
-    user.isOnline = true;
-    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-    
-    const userResponse = { ...user };
-    delete userResponse.password;
-
-    res.json({ user: userResponse, token });
-  } catch (err) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+app.post('/api/v1/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  const user = users.find(u => u.username === username && u.password === password);
+  
+  if (!user) return res.status(401).json({ error: 'Неверный логин или пароль' });
+  
+  const token = jwt.sign({ id: user.id, username }, JWT_SECRET);
+  const { password: _, ...userWithoutPassword } = user;
+  res.json({ user: userWithoutPassword, token });
 });
 
-// 4. Поиск пользователей
+// 4. Поиск пользователей (для добавления в друзья)
 app.get('/api/v1/users/search', authenticateToken, (req, res) => {
   const query = req.query.q?.toLowerCase() || '';
-  const users = db.users
-    .filter(u => u.username.toLowerCase().includes(query) && u.id !== req.user.id)
-    .map(u => ({ id: u.id, username: u.username, avatar: u.avatar, isOnline: u.isOnline }));
-  res.json(users);
+  const foundUsers = users
+    .filter(u => u.id !== req.user.id && (u.username.toLowerCase().includes(query) || u.name.toLowerCase().includes(query)))
+    .map(({ password, ...u }) => u);
+  res.json(foundUsers);
 });
 
 // 5. Получение чатов
 app.get('/api/v1/chats', authenticateToken, (req, res) => {
-  const userChats = db.chats.filter(c => c.participants.some(p => p.id === req.user.id));
+  const userChats = chats.filter(c => c.participants.includes(req.user.id));
   res.json(userChats);
 });
 
-// 6. Получение сообщений
-app.get('/api/v1/messages/:chatId', authenticateToken, (req, res) => {
-  const messages = db.messages.filter(m => m.chatId === req.params.chatId);
-  res.json(messages);
+// 6. Получение сообщений чата
+app.get('/api/v1/chats/:chatId/messages', authenticateToken, (req, res) => {
+  const chatMessages = messages.filter(m => m.chatId === req.params.chatId);
+  res.json(chatMessages);
 });
 
-// --- WebSockets (Real-time) ---
-io.on('connection', (socket) => {
-  console.log('Пользователь подключился:', socket.id);
+// 7. ОТПРАВКА СООБЩЕНИЯ (САМОЕ ВАЖНОЕ)
+app.post('/api/v1/messages', authenticateToken, (req, res) => {
+  const { chatId, receiverId, content } = req.body;
+  const senderId = req.user.id;
 
-  socket.on('authenticate', ({ token }) => {
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      socket.userId = decoded.id;
-      
-      const user = db.users.find(u => u.id === decoded.id);
-      if (user) {
-        user.isOnline = true;
-        io.emit('userStatus', { userId: user.id, isOnline: true });
-      }
-    } catch (e) {
-      console.log('Ошибка токена WS:', e.message);
+  let chat = chats.find(c => c.id === chatId);
+
+  // Если чата еще нет (первое сообщение), создаем его
+  if (!chat && receiverId) {
+    chat = chats.find(c => c.type === 'private' && c.participants.includes(senderId) && c.participants.includes(receiverId));
+    if (!chat) {
+      chat = {
+        id: Date.now().toString(),
+        type: 'private',
+        participants: [senderId, receiverId],
+        createdAt: new Date().toISOString(),
+      };
+      chats.push(chat);
     }
+  }
+
+  if (!chat) return res.status(404).json({ error: 'Чат не найден' });
+
+  const newMessage = {
+    id: Date.now().toString(),
+    chatId: chat.id,
+    senderId,
+    content,
+    timestamp: new Date().toISOString(),
+    status: 'sent'
+  };
+
+  messages.push(newMessage);
+  chat.lastMessage = newMessage;
+
+  // МАГИЯ РЕАЛЬНОГО ВРЕМЕНИ:
+  // Отправляем сообщение напрямую ВСЕМ участникам чата по их личным ID комнатам!
+  chat.participants.forEach(participantId => {
+    io.to(participantId).emit('receive_message', newMessage);
+    io.to(participantId).emit('chat_updated', chat); // Заставляем их меню обновиться
   });
 
-  socket.on('join', (chatId) => {
-    socket.join(chatId);
+  res.json(newMessage);
+});
+
+// --- WEBSOCKETS (Реальное время) ---
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) return next(new Error('Нет токена'));
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return next(new Error('Неверный токен'));
+    socket.user = user;
+    next();
   });
+});
 
-  socket.on('sendMessage', (data) => {
-    const { chatId, content, senderId } = data;
-    
-    const newMessage = {
-      id: Date.now().toString(),
-      chatId,
-      senderId,
-      content,
-      timestamp: new Date().toISOString(),
-      status: 'sent'
-    };
+io.on('connection', (socket) => {
+  console.log(`Пользователь подключился: ${socket.user.username}`);
+  
+  // КРИТИЧЕСКИ ВАЖНО: Пользователь заходит в свою ЛИЧНУЮ комнату
+  socket.join(socket.user.id);
+  
+  // Делаем его онлайн
+  const userIndex = users.findIndex(u => u.id === socket.user.id);
+  if (userIndex !== -1) {
+    users[userIndex].status = 'online';
+    io.emit('user_status_change', { userId: socket.user.id, status: 'online' });
+  }
 
-    db.messages.push(newMessage);
-    
-    // Отправляем всем в чате, включая отправителя
-    io.to(chatId).emit('newMessage', newMessage);
-  });
-
-  socket.on('typing', ({ chatId, userId, isTyping }) => {
-    socket.to(chatId).emit('typing', { chatId, userId, isTyping });
+  socket.on('typing', ({ chatId, receiverId }) => {
+    if (receiverId) io.to(receiverId).emit('typing', { chatId, userId: socket.user.id });
   });
 
   socket.on('disconnect', () => {
-    if (socket.userId) {
-      const user = db.users.find(u => u.id === socket.userId);
-      if (user) {
-        user.isOnline = false;
-        user.lastSeen = new Date().toISOString();
-        io.emit('userStatus', { userId: user.id, isOnline: false, lastSeen: user.lastSeen });
-      }
+    console.log(`Пользователь отключился: ${socket.user.username}`);
+    if (userIndex !== -1) {
+      users[userIndex].status = 'offline';
+      users[userIndex].lastSeen = new Date().toISOString();
+      io.emit('user_status_change', { userId: socket.user.id, status: 'offline', lastSeen: users[userIndex].lastSeen });
     }
-    console.log('Пользователь отключился:', socket.id);
   });
 });
 
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  console.log(`🚀 Сервер Wintozo запущен на порту ${PORT}`);
 });
