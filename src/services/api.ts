@@ -2,6 +2,7 @@ import { SERVER_URL } from '../config/api';
 import { User, Chat, Message } from '../store/appStore';
 
 export const api = {
+  // Вход
   login: async (username: string, password: string): Promise<{ user: User; token: string }> => {
     const response = await fetch(`${SERVER_URL}/api/v1/auth/login`, {
       method: 'POST',
@@ -18,6 +19,7 @@ export const api = {
     return data;
   },
 
+  // Регистрация
   register: async (username: string, password: string, name?: string): Promise<{ user: User; token: string }> => {
     const response = await fetch(`${SERVER_URL}/api/v1/auth/register`, {
       method: 'POST',
@@ -34,10 +36,12 @@ export const api = {
     return data;
   },
 
+  // Выход
   logout: () => {
     localStorage.removeItem('token');
   },
 
+  // Поиск пользователей
   searchUsers: async (query: string): Promise<User[]> => {
     const token = localStorage.getItem('token');
     if (!token) throw new Error('Нет токена');
@@ -48,6 +52,7 @@ export const api = {
     return response.json();
   },
 
+  // Получение чатов
   getChats: async (): Promise<Chat[]> => {
     const token = localStorage.getItem('token');
     if (!token) throw new Error('Нет токена');
@@ -58,6 +63,7 @@ export const api = {
     return response.json();
   },
 
+  // Получение сообщений
   getMessages: async (chatId: string): Promise<Message[]> => {
     const token = localStorage.getItem('token');
     if (!token) throw new Error('Нет токена');
@@ -68,6 +74,7 @@ export const api = {
     return response.json();
   },
 
+  // Отправка сообщений (текст, аудио, фото)
   sendMessage: async (chatId: string, receiverId: string | undefined, content: string, type: 'text' | 'audio' | 'image' = 'text'): Promise<Message> => {
     const token = localStorage.getItem('token');
     if (!token) throw new Error('Нет токена');
@@ -80,6 +87,7 @@ export const api = {
     return response.json();
   },
 
+  // Проверка статуса сервера
   checkHealth: async (): Promise<boolean> => {
     try {
       const response = await fetch(`${SERVER_URL}/api/v1/health`, { cache: 'no-store' });
