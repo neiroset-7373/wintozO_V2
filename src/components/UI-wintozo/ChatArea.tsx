@@ -22,7 +22,6 @@ export const ChatArea: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Таймер для голосового сообщения
   useEffect(() => {
     if (isRecording) {
       timerRef.current = window.setInterval(() => {
@@ -52,7 +51,6 @@ export const ChatArea: React.FC = () => {
   const chatName = isGroup ? activeChat.name : activeChat.participants.find(p => p !== currentUser.id) || 'User';
   const receiverId = isGroup ? undefined : activeChat.participants.find(p => p !== currentUser.id);
 
-  // Отправка текста
   const handleSendText = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
@@ -66,7 +64,6 @@ export const ChatArea: React.FC = () => {
     }
   };
 
-  // НАЧАТЬ ЗАПИСЬ ГОЛОСА 🎙️
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -85,25 +82,23 @@ export const ChatArea: React.FC = () => {
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
           try {
-            // Отправляем аудио на сервер
             const msg = await api.sendMessage(activeChat.id, receiverId, base64Audio, 'audio');
             addMessage(msg);
           } catch (error) {
             console.error('Ошибка отправки аудио:', error);
           }
         };
-        stream.getTracks().forEach(track => track.stop()); // Выключаем микрофон
+        stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
-      console.error('Ошибка доступа к микрофону:', err);
-      alert('Пожалуйста, разрешите доступ к микрофону в браузере!');
+      console.error('Ошибка микрофона:', err);
+      alert('Разрешите доступ к микрофону!');
     }
   };
 
-  // ОСТАНОВИТЬ ЗАПИСЬ ГОЛОСА ⏹️
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
@@ -111,7 +106,6 @@ export const ChatArea: React.FC = () => {
     }
   };
 
-  // Форматирование времени записи
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -122,13 +116,11 @@ export const ChatArea: React.FC = () => {
     return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // ЗВОНКИ (Заглушки для будущего интерфейса звонков)
-  const handleAudioCall = () => alert("📞 Звонок начат! (Интерфейс звонка в разработке)");
-  const handleVideoCall = () => alert("📹 Видеозвонок начат! (Интерфейс видео в разработке)");
+  const handleAudioCall = () => alert("📞 Звонок начат! (Интерфейс в разработке)");
+  const handleVideoCall = () => alert("📹 Видеозвонок начат! (Интерфейс в разработке)");
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#f5f7fb] dark:bg-gray-900">
-      {/* Шапка чата */}
       <div className="h-16 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700/50 flex items-center justify-between px-6 shrink-0 z-10">
         <div className="flex items-center space-x-4">
           <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold shadow-md">
@@ -152,7 +144,6 @@ export const ChatArea: React.FC = () => {
         </div>
       </div>
 
-      {/* Сообщения */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
         {messages.filter(m => m.chatId === activeChat.id).map((message) => {
           const isOwn = message.senderId === currentUser.id;
@@ -161,13 +152,11 @@ export const ChatArea: React.FC = () => {
               <div className={`max-w-[70%] sm:max-w-[60%] rounded-2xl px-5 py-3 shadow-sm ${
                 isOwn ? 'bg-indigo-500 text-white rounded-tr-sm' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-tl-sm border border-gray-100 dark:border-gray-700'
               }`}>
-                {/* ЕСЛИ ЭТО АУДИО */}
                 {(message as any).type === 'audio' ? (
                   <div className="flex items-center space-x-2">
                     <audio src={message.content} controls className="h-10 w-[200px] sm:w-[250px] outline-none" />
                   </div>
                 ) : (
-                  /* ЕСЛИ ЭТО ТЕКСТ */
                   <p className="text-[15px] leading-relaxed break-words">{message.content}</p>
                 )}
                 <div className={`text-[11px] mt-1.5 flex items-center justify-end space-x-1 ${
@@ -182,7 +171,6 @@ export const ChatArea: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Поле ввода */}
       <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50">
         <form onSubmit={handleSendText} className="flex items-center space-x-3 max-w-4xl mx-auto">
           <button type="button" className="p-2.5 text-gray-400 hover:text-indigo-500 transition-colors">
@@ -210,7 +198,6 @@ export const ChatArea: React.FC = () => {
             )}
           </div>
 
-          {/* Кнопка отправки или записи голоса */}
           {newMessage.trim() ? (
             <button type="submit" className="p-3.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full shadow-md transition-transform hover:scale-105 active:scale-95">
               <Send className="w-5 h-5 ml-0.5" />
